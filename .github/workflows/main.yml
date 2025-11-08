@@ -2,43 +2,47 @@ name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
   schedule:
-    # 台北時間每天 07:30 預測賽前（約 T-60）
-    - cron: '30 23 * * *'
-    # 台北時間每天 19:00 回抓前一日結果
-    - cron: '00 11 * * *'
-  workflow_dispatch:  # ✅ 可手動執行
+    # 自動預測（台北 07:30） ≈ ET 18:30 前一日
+    - cron: '30 23 * * *'  # UTC 時間，等於台北 07:30
+    # 自動回抓（台北 19:00） ≈ ET 06:00 當日
+    - cron: '00 11 * * *'  # UTC 時間，等於台北 19:00
+  workflow_dispatch:  # 手動執行
+    inputs:
+      mode:
+        description: 'Run mode (auto/manual)'
+        required: false
+        default: 'manual'
+
+concurrency:
+  group: nba_auto
+  cancel-in-progress: true
 
 jobs:
-  run-nba-automation:
+  run:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 檢出倉庫
-        uses: actions/checkout@v4
+      - name: 檢出 GitHub 專案
+        uses: actions/checkout@v3
 
       - name: 設定 Python 環境
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.10'
 
-      - name: 安裝依賴
+      - name: 安裝依賴套件
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install filelock pandas numpy requests matplotlib
 
-      - name: 執行主要腳本（Hybrid v4.3）
+      - name: 執行 NBA Hybrid v4.x 自動預測與回抓
         run: |
+          echo "🏀 Starting NBA Hybrid v4.3 automation..."
           python main.py
+          echo "✅ Task completed."
 
-      - name: 儲存輸出結果（Artifacts）
-        uses: actions/upload-artifact@v4
-        with:
-          name: nba_auto_outputs
-          path: |
-            ./data/
-            ./logs/
-
-      - name: 自動推回最新資料到 GitHub（更新 data/）
+      - name: 自動上傳更新檔案至 GitHub（更新資料）
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -46,12 +50,10 @@ jobs:
           git commit -m "Auto update: latest predictions and results [Hybrid v4.3]" || echo "No changes"
           git push
 
-      - name: （可選）每日自動壓縮備份 ZIP
+      - name: 建立每日 ZIP 備份
         run: |
-          zip -r nba_auto_backup_$(date +'%Y%m%d').zip data/ logs/
           mkdir -p backups
-          mv nba_auto_backup_*.zip backups/
+          zip -r "backups/nba_auto_backup_$(date +'%Y%m%d').zip" data/ logs/ || true
           git add backups/ || true
-          git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No zip changes"
+          git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No new backup"
           git push
-
