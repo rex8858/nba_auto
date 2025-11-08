@@ -1,0 +1,39 @@
+name: NBA Auto Tasks (Hybrid v4.3)
+
+on:
+  schedule:
+    # 台北時間每天 07:30 預測賽前（約 T-60）
+    - cron: '30 23 * * *'
+    # 台北時間每天 19:00 回抓前一日結果
+    - cron: '00 11 * * *'
+  workflow_dispatch:  # 允許手動執行
+
+jobs:
+  run-nba-automation:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 檢出倉庫
+        uses: actions/checkout@v4
+
+      - name: 設定 Python 環境
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安裝依賴
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 執行主要腳本（Hybrid v4.3）
+        run: |
+          python main.py
+
+      - name: 儲存輸出結果
+        uses: actions/upload-artifact@v4
+        with:
+          name: nba_auto_outputs
+          path: |
+            ./data/
+            ./logs/
