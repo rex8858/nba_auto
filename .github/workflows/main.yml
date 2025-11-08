@@ -1,70 +1,49 @@
 name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
+  workflow_dispatch:
   schedule:
-    # 自動預測（台北 07:30）
-    - cron: '30 23 * * *'  # UTC 23:30 = 台北 07:30
-    # 自動回抓（台北 19:00）
-    - cron: '00 11 * * *'  # UTC 11:00 = 台北 19:00
-  workflow_dispatch:  # 手動執行
-    inputs:
-      task:
-        description: 'Select task to run (morning or evening)'
-        required: false
-        default: 'morning'
-
-concurrency:
-  group: nba_auto
-  cancel-in-progress: true
+    - cron: '30 23 * * *'  # 每天台北早上 7:30 執行 (ET 晚上 18:30)
+    - cron: '0 0 * * *'    # 每天台北早上 8:00 再次檢查 (ET 晚上 19:00)
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 檢出 GitHub 專案
-        uses: actions/checkout@v3
+    - name: 檢出 GitHub 專案
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
 
-      - name: 設定 Python 環境
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
+    - name: 設定 Python 環境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
 
-      - name: 安裝依賴套件
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install pandas numpy requests matplotlib filelock PyYAML pytz scipy tqdm
+    - name: 安裝依賴套件
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas numpy pytz pyyaml requests
 
-      - name: 執行 NBA Hybrid v4.x 自動預測與回抓
-        run: |
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            CURRENT_HOUR=$(date -u +"%H")
-            if [ "$CURRENT_HOUR" -ge 11 ] && [ "$CURRENT_HOUR" -lt 12 ]; then
-              echo "🏀 Running EVENING task (回抓更新)..."
-              python main.py --task evening
-            else
-              echo "☀️ Running MORNING task (開賽前預測)..."
-              python main.py --task morning
-            fi
-          else
-            echo "🧩 Manual trigger detected, running manual mode..."
-            python main.py --task "${{ github.event.inputs.task }}"
-          fi
+    - name: 執行 NBA Hybrid v4.x 自動預測與回抓
+      run: |
+        echo "🕒 Starting NBA Hybrid v4.3 automation..."
+        python main.py
 
-      - name: 自動上傳更新檔案至 GitHub（更新資料）
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/ logs/ || true
-          git commit -m "Auto update: latest predictions and results [Hybrid v4.3]" || echo "No changes"
-          git push
+    - name: 自動上傳更新檔案至 GitHub (更新資料)
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add logs/ || true
+        git commit -m "Auto update: latest run logs [Hybrid v4.3]" || echo "No changes to commit"
+        git push
 
-      - name: 建立每日 ZIP 備份
-        run: |
-          mkdir -p backups
-          zip -r "backups/nba_auto_backup_$(date +'%Y%m%d').zip" data/ logs/ || true
-          git add backups/ || true
-          git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No new backup"
-          git push
+    - name: 建立每日 ZIP 備份
+      run: |
+        mkdir -p backups
+        zip -r backups/nba_auto_backup_$(date +'%Y%m%d_%H%M').zip data logs
+        git add backups/ || true
+        git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No new backups"
+        git push
 
