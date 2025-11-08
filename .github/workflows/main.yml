@@ -1,4 +1,4 @@
-name: NBA Auto Tasks (Hybrid v4.3)
+name: NBA Auto Tasks (Hybrid v4.3 Safe Merge)
 
 on:
   schedule:
@@ -63,18 +63,10 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
-          git pull --rebase origin main
           git add data logs || true
-          git diff --cached --quiet && echo "No changes to commit" && exit 0 || true
-          git commit -m "${{ matrix.task.msg }}" || echo "no changes"
-          n=0
-          until [ $n -ge 3 ]
-          do
-            git pull --rebase origin main && git push origin main && break
-            n=$((n+1))
-            echo "Retry push ($n/3)..."
-            sleep 5
-          done
+          git commit -m "${{ matrix.task.msg }}" || echo "no changes to commit"
+          git pull origin main --allow-unrelated-histories || true
+          git push origin main || echo "no push needed (already up to date)"
 
       - name: Zip nightly backup (only for evening)
         if: matrix.task.name == 'evening' && steps.should_run.outputs.skip == 'false'
@@ -84,9 +76,7 @@ jobs:
           zip -r backups/nba_auto_backup_${ts}.zip data logs || true
           git fetch origin main
           git checkout main
-          git pull --rebase origin main
           git add backups || true
-          git diff --cached --quiet && echo "No zip to commit" && exit 0 || true
           git commit -m "Add nightly backup zip (Hybrid v4.3)" || echo "no zip changes"
-          git push origin main
-
+          git pull origin main --allow-unrelated-histories || true
+          git push origin main || echo "no push needed (already up to date)"
