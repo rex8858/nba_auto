@@ -13,10 +13,6 @@ on:
         required: false
         default: "all"
 
-concurrency:
-  group: nba-auto-main
-  cancel-in-progress: false
-
 jobs:
   run-task:
     runs-on: ubuntu-latest
@@ -28,14 +24,6 @@ jobs:
           - { name: "t60a",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch A (Hybrid v4.3)" }
           - { name: "t60b",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch B (Hybrid v4.3)" }
           - { name: "evening",cmd: "python main.py --task evening --tz Asia/Taipei",                  msg: "Auto: nightly backfill (Hybrid v4.3)" }
-
-    # ✅ 自動模式四個依序跑；手動模式只跑選到的或依序執行 all
-    if: >
-      ${{
-        (github.event_name == 'workflow_dispatch' &&
-         (inputs.which == 'all' || matrix.task.name == inputs.which))
-        || (github.event_name == 'schedule')
-      }}
 
     steps:
       - uses: actions/checkout@v4
@@ -53,11 +41,23 @@ jobs:
           pip install -r requirements.txt
           mkdir -p data logs backups
 
+      - name: Decide if this task should run
+        id: should_run
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ inputs.which }}" != "all" && "${{ matrix.task.name }}" != "${{ inputs.which }}" ]]; then
+              echo "skip=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+
       - name: Run NBA Hybrid v4.3 automation
+        if: steps.should_run.outputs.skip == 'false'
         run: ${{ matrix.task.cmd }}
 
       - name: Commit & push updates safely
-        if: always()
+        if: steps.should_run.outputs.skip == 'false'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
@@ -77,7 +77,7 @@ jobs:
           done
 
       - name: Zip nightly backup (only for evening)
-        if: matrix.task.name == 'evening'
+        if: matrix.task.name == 'evening' && steps.should_run.outputs.skip == 'false'
         run: |
           ts=$(date +'%Y%m%d_%H%M')
           mkdir -p backups
@@ -89,3 +89,4 @@ jobs:
           git diff --cached --quiet && echo "No zip to commit" && exit 0 || true
           git commit -m "Add nightly backup zip (Hybrid v4.3)" || echo "no zip changes"
           git push origin main
+
