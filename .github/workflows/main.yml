@@ -1,10 +1,13 @@
 name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:        # ✅ 手動執行
   schedule:
-    - cron: '30 23 * * *'  # 每天台北早上 7:30 執行 (ET 晚上 18:30)
-    - cron: '0 0 * * *'    # 每天台北早上 8:00 再次檢查 (ET 晚上 19:00)
+    - cron: '30 23 * * *'   # 每天台北早上 7:30（ET 晚上 18:30）
+    - cron: '0 0 * * *'     # 每天台北早上 8:00 再次檢查
+
+permissions:
+  contents: write           # ✅ 給 GitHub Actions 寫入權限
 
 jobs:
   build:
@@ -14,7 +17,7 @@ jobs:
     - name: 檢出 GitHub 專案
       uses: actions/checkout@v3
       with:
-        fetch-depth: 0
+        fetch-depth: 0      # ✅ 允許存取完整提交紀錄與 data/
 
     - name: 設定 Python 環境
       uses: actions/setup-python@v4
@@ -31,13 +34,29 @@ jobs:
         echo "🕒 Starting NBA Hybrid v4.3 automation..."
         python main.py
 
+    # ✅ 若能直接 push（repo 無保護），則用這段
     - name: 自動上傳更新檔案至 GitHub (更新資料)
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add logs/ || true
-        git commit -m "Auto update: latest run logs [Hybrid v4.3]" || echo "No changes to commit"
-        git push
+        git commit -m "Auto update: logs and predictions [Hybrid v4.3]" || echo "No direct changes to commit"
+        git push || echo "⚠️ Direct push failed, will create PR instead"
+
+    # ✅ 若無法 push（例如 main 有保護），自動建立 Pull Request
+    - name: 建立 Pull Request 備援
+      uses: peter-evans/create-pull-request@v6
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: "Auto update: logs & backups [Hybrid v4.3]"
+        title: "Auto update (logs & backups)"
+        body: |
+          📊 This PR contains auto-generated data updates:
+          - Latest predictions & logs from Hybrid v4.3
+          - Backups included
+          - Created automatically by GitHub Actions
+        branch: auto/update-logs
+        base: main
 
     - name: 建立每日 ZIP 備份
       run: |
@@ -45,5 +64,5 @@ jobs:
         zip -r backups/nba_auto_backup_$(date +'%Y%m%d_%H%M').zip data logs
         git add backups/ || true
         git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No new backups"
-        git push
+        git push || echo "⚠️ Backup push failed; PR already covers changes"
 
