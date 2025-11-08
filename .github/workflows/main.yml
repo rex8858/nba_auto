@@ -2,16 +2,16 @@ name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
   schedule:
-    # 自動預測（台北 07:30） ≈ ET 18:30 前一日
-    - cron: '30 23 * * *'  # UTC 時間，等於台北 07:30
-    # 自動回抓（台北 19:00） ≈ ET 06:00 當日
-    - cron: '00 11 * * *'  # UTC 時間，等於台北 19:00
+    # 自動預測（台北 07:30）
+    - cron: '30 23 * * *'  # UTC 23:30 = 台北 07:30
+    # 自動回抓（台北 19:00）
+    - cron: '00 11 * * *'  # UTC 11:00 = 台北 19:00
   workflow_dispatch:  # 手動執行
     inputs:
-      mode:
-        description: 'Run mode (auto/manual)'
+      task:
+        description: 'Select task to run (morning or evening)'
         required: false
-        default: 'manual'
+        default: 'morning'
 
 concurrency:
   group: nba_auto
@@ -38,9 +38,19 @@ jobs:
 
       - name: 執行 NBA Hybrid v4.x 自動預測與回抓
         run: |
-          echo "🏀 Starting NBA Hybrid v4.3 automation..."
-          python main.py
-          echo "✅ Task completed."
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            CURRENT_HOUR=$(date -u +"%H")
+            if [ "$CURRENT_HOUR" -ge 11 ] && [ "$CURRENT_HOUR" -lt 12 ]; then
+              echo "🏀 Running EVENING task (回抓更新)..."
+              python main.py --task evening
+            else
+              echo "☀️ Running MORNING task (開賽前預測)..."
+              python main.py --task morning
+            fi
+          else
+            echo "🧩 Manual trigger detected, running manual mode..."
+            python main.py --task "${{ github.event.inputs.task }}"
+          fi
 
       - name: 自動上傳更新檔案至 GitHub（更新資料）
         run: |
