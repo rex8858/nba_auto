@@ -2,101 +2,69 @@ name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
   schedule:
-    # GitHub Actions 使用 UTC；台北=UTC+8
-    - cron: '0 22 * * *'   # 每日 22:00 UTC = 台北 06:00 → T120
-    - cron: '30 0 * * *'   # 每日 00:30 UTC = 台北 08:30 → T60 第一批
-    - cron: '30 1 * * *'   # 每日 01:30 UTC = 台北 09:30 → T60 第二批
-    - cron: '0 11 * * *'   # 每日 11:00 UTC = 台北 19:00 → 回抓
+    - cron: '0 22 * * *'   # 台北06:00 T120
+    - cron: '30 0 * * *'   # 台北08:30 T60A
+    - cron: '30 1 * * *'   # 台北09:30 T60B
+    - cron: '0 11 * * *'   # 台北19:00 evening
   workflow_dispatch:
     inputs:
       which:
-        description: "Run which task? (t120 / t60a / t60b / evening / all)"
+        description: "Run which task? (t120/t60a/t60b/evening/all)"
         required: false
         default: "all"
 
 jobs:
-  t120:
-    if: github.event_name == 'schedule' && github.event.schedule == '0 22 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't120' || inputs.which == 'all')
+  job-template:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.10' }
-      - run: pip install -r requirements.txt
-      - run: mkdir -p data logs backups
-      - name: Run T-120 snapshot (Asia/Taipei)
-        run: python main.py --task morning --snapshot T120 --tz Asia/Taipei
-      - name: Commit logs & data
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data logs || true
-          git commit -m "Auto: T120 snapshots (Hybrid v4.3)" || echo "no changes"
-          git push
+    strategy:
+      matrix:
+        include:
+          - name: "t120"
+            cron: "0 22 * * *"
+            cmd: "python main.py --task morning --snapshot T120 --tz Asia/Taipei"
+            msg: "Auto: T120 snapshot (Hybrid v4.3)"
+          - name: "t60a"
+            cron: "30 0 * * *"
+            cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei"
+            msg: "Auto: T60 batch A (Hybrid v4.3)"
+          - name: "t60b"
+            cron: "30 1 * * *"
+            cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei"
+            msg: "Auto: T60 batch B (Hybrid v4.3)"
+          - name: "evening"
+            cron: "0 11 * * *"
+            cmd: "python main.py --task evening --tz Asia/Taipei"
+            msg: "Auto: nightly backfill (Hybrid v4.3)"
 
-  t60a:
-    if: github.event_name == 'schedule' && github.event.schedule == '30 0 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't60a' || inputs.which == 'all')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.10' }
-      - run: pip install -r requirements.txt
-      - run: mkdir -p data logs backups
-      - name: Run T-60 snapshot batch A (Asia/Taipei)
-        run: python main.py --task morning --snapshot T60 --tz Asia/Taipei
-      - name: Commit logs & data
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data logs || true
-          git commit -m "Auto: T60 batch A (Hybrid v4.3)" || echo "no changes"
-          git push
+    if: |
+      github.event_name == 'schedule' && github.event.schedule == matrix.cron ||
+      github.event_name == 'workflow_dispatch' && (inputs.which == matrix.name || inputs.which == 'all')
 
-  t60b:
-    if: github.event_name == 'schedule' && github.event.schedule == '30 1 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't60b' || inputs.which == 'all')
-    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: '3.10' }
+        with:
+          python-version: '3.10'
       - run: pip install -r requirements.txt
       - run: mkdir -p data logs backups
-      - name: Run T-60 snapshot batch B (Asia/Taipei)
-        run: python main.py --task morning --snapshot T60 --tz Asia/Taipei
-      - name: Commit logs & data
+      - name: Run NBA Hybrid v4.3 automation
+        run: ${{ matrix.cmd }}
+      - name: Commit & push updates safely
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase
           git add data logs || true
-          git commit -m "Auto: T60 batch B (Hybrid v4.3)" || echo "no changes"
+          git commit -m "${{ matrix.msg }}" || echo "no changes"
           git push
-
-  evening:
-    if: github.event_name == 'schedule' && github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 'evening' || inputs.which == 'all')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.10' }
-      - run: pip install -r requirements.txt
-      - run: mkdir -p data logs backups
-      - name: Run nightly backfill & summaries (Asia/Taipei)
-        run: python main.py --task evening --tz Asia/Taipei
-      - name: Commit logs & data
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add data logs || true
-          git commit -m "Auto: nightly backfill & TOTALS (Hybrid v4.3)" || echo "no changes"
-          git push
-      - name: Zip daily backup
+      - name: Zip backup (only for evening)
+        if: matrix.name == 'evening'
         run: |
           ts=$(date +'%Y%m%d_%H%M')
           mkdir -p backups
           zip -r backups/nba_auto_backup_${ts}.zip data logs || true
-      - name: Commit backup zip
-        run: |
+          git pull --rebase
           git add backups || true
-          git commit -m "Add daily backup zip (Hybrid v4.3)" || echo "no zip changes"
+          git commit -m "Add nightly backup zip (Hybrid v4.3)" || echo "no zip changes"
           git push
+
