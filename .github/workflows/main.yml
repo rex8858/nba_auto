@@ -1,68 +1,102 @@
 name: NBA Auto Tasks (Hybrid v4.3)
 
 on:
-  workflow_dispatch:        # ✅ 手動執行
   schedule:
-    - cron: '30 23 * * *'   # 每天台北早上 7:30（ET 晚上 18:30）
-    - cron: '0 0 * * *'     # 每天台北早上 8:00 再次檢查
-
-permissions:
-  contents: write           # ✅ 給 GitHub Actions 寫入權限
+    # GitHub Actions 使用 UTC；台北=UTC+8
+    - cron: '0 22 * * *'   # 每日 22:00 UTC = 台北 06:00 → T120
+    - cron: '30 0 * * *'   # 每日 00:30 UTC = 台北 08:30 → T60 第一批
+    - cron: '30 1 * * *'   # 每日 01:30 UTC = 台北 09:30 → T60 第二批
+    - cron: '0 11 * * *'   # 每日 11:00 UTC = 台北 19:00 → 回抓
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "Run which task? (t120 / t60a / t60b / evening / all)"
+        required: false
+        default: "all"
 
 jobs:
-  build:
+  t120:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 22 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't120' || inputs.which == 'all')
     runs-on: ubuntu-latest
-
     steps:
-    - name: 檢出 GitHub 專案
-      uses: actions/checkout@v3
-      with:
-        fetch-depth: 0      # ✅ 允許存取完整提交紀錄與 data/
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data logs backups
+      - name: Run T-120 snapshot (Asia/Taipei)
+        run: python main.py --task morning --snapshot T120 --tz Asia/Taipei
+      - name: Commit logs & data
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data logs || true
+          git commit -m "Auto: T120 snapshots (Hybrid v4.3)" || echo "no changes"
+          git push
 
-    - name: 設定 Python 環境
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.10'
+  t60a:
+    if: github.event_name == 'schedule' && github.event.schedule == '30 0 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't60a' || inputs.which == 'all')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data logs backups
+      - name: Run T-60 snapshot batch A (Asia/Taipei)
+        run: python main.py --task morning --snapshot T60 --tz Asia/Taipei
+      - name: Commit logs & data
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data logs || true
+          git commit -m "Auto: T60 batch A (Hybrid v4.3)" || echo "no changes"
+          git push
 
-    - name: 安裝依賴套件
-      run: |
-        python -m pip install --upgrade pip
-        pip install pandas numpy pytz pyyaml requests
+  t60b:
+    if: github.event_name == 'schedule' && github.event.schedule == '30 1 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 't60b' || inputs.which == 'all')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data logs backups
+      - name: Run T-60 snapshot batch B (Asia/Taipei)
+        run: python main.py --task morning --snapshot T60 --tz Asia/Taipei
+      - name: Commit logs & data
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data logs || true
+          git commit -m "Auto: T60 batch B (Hybrid v4.3)" || echo "no changes"
+          git push
 
-    - name: 執行 NBA Hybrid v4.x 自動預測與回抓
-      run: |
-        echo "🕒 Starting NBA Hybrid v4.3 automation..."
-        python main.py
-
-    # ✅ 若能直接 push（repo 無保護），則用這段
-    - name: 自動上傳更新檔案至 GitHub (更新資料)
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git add logs/ || true
-        git commit -m "Auto update: logs and predictions [Hybrid v4.3]" || echo "No direct changes to commit"
-        git push || echo "⚠️ Direct push failed, will create PR instead"
-
-    # ✅ 若無法 push（例如 main 有保護），自動建立 Pull Request
-    - name: 建立 Pull Request 備援
-      uses: peter-evans/create-pull-request@v6
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: "Auto update: logs & backups [Hybrid v4.3]"
-        title: "Auto update (logs & backups)"
-        body: |
-          📊 This PR contains auto-generated data updates:
-          - Latest predictions & logs from Hybrid v4.3
-          - Backups included
-          - Created automatically by GitHub Actions
-        branch: auto/update-logs
-        base: main
-
-    - name: 建立每日 ZIP 備份
-      run: |
-        mkdir -p backups
-        zip -r backups/nba_auto_backup_$(date +'%Y%m%d_%H%M').zip data logs
-        git add backups/ || true
-        git commit -m "Add daily backup zip [Hybrid v4.3]" || echo "No new backups"
-        git push || echo "⚠️ Backup push failed; PR already covers changes"
-
+  evening:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 11 * * *' || github.event_name == 'workflow_dispatch' && (inputs.which == 'evening' || inputs.which == 'all')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
+      - run: pip install -r requirements.txt
+      - run: mkdir -p data logs backups
+      - name: Run nightly backfill & summaries (Asia/Taipei)
+        run: python main.py --task evening --tz Asia/Taipei
+      - name: Commit logs & data
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data logs || true
+          git commit -m "Auto: nightly backfill & TOTALS (Hybrid v4.3)" || echo "no changes"
+          git push
+      - name: Zip daily backup
+        run: |
+          ts=$(date +'%Y%m%d_%H%M')
+          mkdir -p backups
+          zip -r backups/nba_auto_backup_${ts}.zip data logs || true
+      - name: Commit backup zip
+        run: |
+          git add backups || true
+          git commit -m "Add daily backup zip (Hybrid v4.3)" || echo "no zip changes"
+          git push
