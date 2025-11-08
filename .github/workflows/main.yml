@@ -13,7 +13,6 @@ on:
         required: false
         default: "all"
 
-# ✅ 並發鎖：避免多任務同時推送導致 128 衝突
 concurrency:
   group: nba-auto-main
   cancel-in-progress: false
@@ -22,12 +21,21 @@ jobs:
   run-task:
     runs-on: ubuntu-latest
     strategy:
+      max-parallel: 1
       matrix:
         task:
-          - { name: "t120",  cmd: "python main.py --task morning --snapshot T120 --tz Asia/Taipei", msg: "Auto: T120 snapshot (Hybrid v4.3)" }
-          - { name: "t60a",  cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",  msg: "Auto: T60 batch A (Hybrid v4.3)" }
-          - { name: "t60b",  cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",  msg: "Auto: T60 batch B (Hybrid v4.3)" }
-          - { name: "evening", cmd: "python main.py --task evening --tz Asia/Taipei", msg: "Auto: nightly backfill (Hybrid v4.3)" }
+          - { name: "t120",   cmd: "python main.py --task morning --snapshot T120 --tz Asia/Taipei",  msg: "Auto: T120 snapshot (Hybrid v4.3)" }
+          - { name: "t60a",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch A (Hybrid v4.3)" }
+          - { name: "t60b",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch B (Hybrid v4.3)" }
+          - { name: "evening",cmd: "python main.py --task evening --tz Asia/Taipei",                  msg: "Auto: nightly backfill (Hybrid v4.3)" }
+
+    # ✅ 自動模式四個依序跑；手動模式只跑選到的或依序執行 all
+    if: >
+      ${{
+        (github.event_name == 'workflow_dispatch' &&
+         (inputs.which == 'all' || matrix.task.name == inputs.which))
+        || (github.event_name == 'schedule')
+      }}
 
     steps:
       - uses: actions/checkout@v4
@@ -39,8 +47,11 @@ jobs:
         with:
           python-version: '3.10'
 
-      - run: pip install -r requirements.txt
-      - run: mkdir -p data logs backups
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p data logs backups
 
       - name: Run NBA Hybrid v4.3 automation
         run: ${{ matrix.task.cmd }}
