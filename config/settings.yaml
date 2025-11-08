@@ -1,0 +1,12 @@
+timezone: Asia/Taipei
+morning_run_cron_tpe: "30 7 * * *"
+evening_run_cron_tpe: "0 19 * * *"
+
+model:
+  version: "Hybrid v4.3"
+  t_model: { n: 200000, df_t: 5, sd_total: 20.1, w_market: 0.65 }
+  s_model: { n: 200000, df_t: 5, sd_team: 12, rho: 0.40 }
+
+files:
+  master: "data/NBA_AB_master_full_v43.csv"
+  per_game: "data/AB_per_game_v43.csv"

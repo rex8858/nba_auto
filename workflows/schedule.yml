@@ -1,0 +1,28 @@
+name: NBA Auto Tasks
+on:
+  schedule:
+    - cron: '30 23 * * *'   # 07:30 TPE = 23:30 UTC (前一日)
+    - cron: '0 11 * * *'    # 19:00 TPE = 11:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Morning Task
+        if: ${{ github.event.schedule == '30 23 * * *' }}
+        run: python main.py --task morning
+      - name: Evening Task
+        if: ${{ github.event.schedule == '0 11 * * *' }}
+        run: python main.py --task evening
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-outputs
+          path: |
+            data/*.csv
