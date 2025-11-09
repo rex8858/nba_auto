@@ -1,27 +1,25 @@
-name: NBA Auto Predictor (Hybrid v4.3-Live, Full Coverage)
+name: NBA Auto Predictor (Hybrid v4.3 – Full Rolling Coverage + Safe Merge)
 
 on:
   schedule:
-    - cron: '45 22 * * *'   # 台北 06:45
-    - cron: '15 23 * * *'   # 台北 07:15
-    - cron: '45 23 * * *'   # 台北 07:45
-    - cron: '15 0 * * *'    # 台北 08:15
-    - cron: '45 0 * * *'    # 台北 08:45
-    - cron: '15 1 * * *'    # 台北 09:15
-    - cron: '45 1 * * *'    # 台北 09:45
-    - cron: '15 2 * * *'    # 台北 10:15
-    - cron: '45 2 * * *'    # 台北 10:45
-    - cron: '15 3 * * *'    # 台北 11:15 ✅ 覆蓋到11:30開打
+    - cron: '15-45/30 22-2 * * *'   # 台北時間 06:45 開始，每半小時一次 (06:45, 07:15, 07:45...10:45)
+    - cron: '0 11 * * *'            # 台北時間 19:00 自動回補 Backfill
   workflow_dispatch:
     inputs:
       which:
-        description: "Run which task? (live/all)"
+        description: "Run which task? (live/backfill/all)"
         required: false
-        default: "live"
+        default: "all"
 
 jobs:
-  run-live:
+  run-task:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task:
+          - { name: "live", cmd: "python main.py --task morning --mode live --window_min 40 --window_max 60 --tz Asia/Taipei", msg: "Auto: Rolling live snapshot (Hybrid v4.3)" }
+          - { name: "backfill", cmd: "python main.py --task evening --mode backfill --tz Asia/Taipei", msg: "Auto: nightly backfill (Hybrid v4.3)" }
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,27 +31,26 @@ jobs:
           pip install -r requirements.txt
           mkdir -p data logs backups
 
-      - name: Run Hybrid v4.3-Live Morning Model
-        run: |
-          echo "Starting live pregame predictions (Hybrid v4.3-Live)"
-          python main.py --task morning --snapshot T60 --tz Asia/Taipei --window_min 15 --window_max 45
+      - name: Run NBA Hybrid v4.3 automation
+        if: github.event_name == 'schedule' || inputs.which == 'all' || matrix.task.name == inputs.which
+        run: ${{ matrix.task.cmd }}
 
-      - name: Commit & push updated data
+      - name: Commit & push updates safely
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase
+          git pull --rebase || true
           git add data logs || true
-          git commit -m "Auto: Live T60 snapshot (Hybrid v4.3-Live)" || echo "no changes"
-          git push
+          git commit -m "${{ matrix.task.msg }}" || echo "no changes to commit"
+          git push || echo "nothing to push"
 
-      - name: Zip backup (optional, last run only)
-        if: github.event.schedule == '15 3 * * *'
+      - name: Zip nightly backup (only for backfill)
+        if: matrix.task.name == 'backfill'
         run: |
           ts=$(date +'%Y%m%d_%H%M')
           mkdir -p backups
           zip -r backups/nba_auto_backup_${ts}.zip data logs || true
-          git pull --rebase
+          git pull --rebase || true
           git add backups || true
-          git commit -m "Add backup zip (Hybrid v4.3-Live)" || echo "no zip changes"
-          git push
+          git commit -m "Add nightly backup zip (Hybrid v4.3)" || echo "no zip changes"
+          git push || echo "no backup to push"
