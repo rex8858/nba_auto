@@ -1,82 +1,59 @@
-name: NBA Auto Tasks (Hybrid v4.3 Safe Merge)
+name: NBA Auto Predictor (Hybrid v4.3-Live, Full Coverage)
 
 on:
   schedule:
-    - cron: '0 22 * * *'   # 台北06:00 T120
-    - cron: '30 0 * * *'   # 台北08:30 T60A
-    - cron: '30 1 * * *'   # 台北09:30 T60B
-    - cron: '0 11 * * *'   # 台北19:00 evening
+    - cron: '45 22 * * *'   # 台北 06:45
+    - cron: '15 23 * * *'   # 台北 07:15
+    - cron: '45 23 * * *'   # 台北 07:45
+    - cron: '15 0 * * *'    # 台北 08:15
+    - cron: '45 0 * * *'    # 台北 08:45
+    - cron: '15 1 * * *'    # 台北 09:15
+    - cron: '45 1 * * *'    # 台北 09:45
+    - cron: '15 2 * * *'    # 台北 10:15
+    - cron: '45 2 * * *'    # 台北 10:45
+    - cron: '15 3 * * *'    # 台北 11:15 ✅ 覆蓋到11:30開打
   workflow_dispatch:
     inputs:
       which:
-        description: "Run which task? (t120/t60a/t60b/evening/all)"
+        description: "Run which task? (live/all)"
         required: false
-        default: "all"
+        default: "live"
 
 jobs:
-  run-task:
+  run-live:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1
-      matrix:
-        task:
-          - { name: "t120",   cmd: "python main.py --task morning --snapshot T120 --tz Asia/Taipei",  msg: "Auto: T120 snapshot (Hybrid v4.3)" }
-          - { name: "t60a",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch A (Hybrid v4.3)" }
-          - { name: "t60b",   cmd: "python main.py --task morning --snapshot T60 --tz Asia/Taipei",   msg: "Auto: T60 batch B (Hybrid v4.3)" }
-          - { name: "evening",cmd: "python main.py --task evening --tz Asia/Taipei",                  msg: "Auto: nightly backfill (Hybrid v4.3)" }
-
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
           pip install -r requirements.txt
           mkdir -p data logs backups
 
-      - name: Decide if this task should run
-        id: should_run
+      - name: Run Hybrid v4.3-Live Morning Model
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            if [[ "${{ inputs.which }}" != "all" && "${{ matrix.task.name }}" != "${{ inputs.which }}" ]]; then
-              echo "skip=true" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-          fi
-          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "Starting live pregame predictions (Hybrid v4.3-Live)"
+          python main.py --task morning --snapshot T60 --tz Asia/Taipei --window_min 15 --window_max 45
 
-      - name: Run NBA Hybrid v4.3 automation
-        if: steps.should_run.outputs.skip == 'false'
-        run: ${{ matrix.task.cmd }}
-
-      - name: Commit & push updates safely
-        if: steps.should_run.outputs.skip == 'false'
+      - name: Commit & push updated data
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch origin main
-          git checkout main
+          git pull --rebase
           git add data logs || true
-          git commit -m "${{ matrix.task.msg }}" || echo "no changes to commit"
-          git pull origin main --allow-unrelated-histories || true
-          git push origin main || echo "no push needed (already up to date)"
+          git commit -m "Auto: Live T60 snapshot (Hybrid v4.3-Live)" || echo "no changes"
+          git push
 
-      - name: Zip nightly backup (only for evening)
-        if: matrix.task.name == 'evening' && steps.should_run.outputs.skip == 'false'
+      - name: Zip backup (optional, last run only)
+        if: github.event.schedule == '15 3 * * *'
         run: |
           ts=$(date +'%Y%m%d_%H%M')
           mkdir -p backups
           zip -r backups/nba_auto_backup_${ts}.zip data logs || true
-          git fetch origin main
-          git checkout main
+          git pull --rebase
           git add backups || true
-          git commit -m "Add nightly backup zip (Hybrid v4.3)" || echo "no zip changes"
-          git pull origin main --allow-unrelated-histories || true
-          git push origin main || echo "no push needed (already up to date)"
+          git commit -m "Add backup zip (Hybrid v4.3-Live)" || echo "no zip changes"
+          git push
