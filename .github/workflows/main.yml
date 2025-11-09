@@ -2,8 +2,11 @@ name: NBA Auto Predictor (Hybrid v4.3 – Full Rolling Coverage + Safe Merge)
 
 on:
   schedule:
-    - cron: '15-45/30 22-2 * * *'   # 台北時間 06:45 開始，每半小時一次 (06:45, 07:15, 07:45...10:45)
-    - cron: '0 11 * * *'            # 台北時間 19:00 自動回補 Backfill
+    # 台北 06:45–10:45，每半小時一次（UTC 22:45–02:45）
+    - cron: '45 22,23,0,1,2 * * *'   # :45
+    - cron: '15 23,0,1,2 * * *'      # :15
+    # 台北 19:00 回補（UTC 11:00）
+    - cron: '0 11 * * *'
   workflow_dispatch:
     inputs:
       which:
@@ -17,14 +20,13 @@ jobs:
     strategy:
       matrix:
         task:
-          - { name: "live", cmd: "python main.py --task morning --mode live --window_min 40 --window_max 60 --tz Asia/Taipei", msg: "Auto: Rolling live snapshot (Hybrid v4.3)" }
-          - { name: "backfill", cmd: "python main.py --task evening --mode backfill --tz Asia/Taipei", msg: "Auto: nightly backfill (Hybrid v4.3)" }
+          - { name: "live",     cmd: "python main.py --task morning --mode live --window_min 40 --window_max 60 --tz Asia/Taipei", msg: "Auto: Rolling live snapshot (Hybrid v4.3)" }
+          - { name: "backfill", cmd: "python main.py --task evening --mode backfill --tz Asia/Taipei",                                msg: "Auto: nightly backfill (Hybrid v4.3)" }
 
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+        with: { python-version: '3.10' }
 
       - name: Install dependencies
         run: |
