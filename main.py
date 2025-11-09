@@ -167,3 +167,44 @@ if __name__ == "__main__":
         window_min=args.window_min,
         window_max=args.window_max
     )
+# ───────────────────────────────────────────────
+# Backfill mode (補抓昨日已完賽比賽)
+def backfill_results():
+    print("🔁 Running backfill mode...")
+
+    # 模擬從 NBA.com / ESPN 抓取昨日比賽資料
+    # 實際版：可接 API 或用 web 工具
+    yesterday = (get_now_taipei() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    results = [
+        {"game_id": "20251108_1", "teamA": "Lakers", "teamB": "Suns",
+         "finalA": 112, "finalB": 106, "total": 218, "spread": -3.5,
+         "OU_result_v43": "Under", "ATS_pick_result_v42S": "Win"},
+        # ... 可多筆
+    ]
+    df_results = pd.DataFrame(results)
+
+    master_path = "data/NBA_AB_1030_1109_master_full_v43_TMC_with_summary.csv"
+    if os.path.exists(master_path):
+        df_master = pd.read_csv(master_path)
+        merged = pd.merge(df_master, df_results, on="game_id", how="left", suffixes=("", "_new"))
+        merged.update(df_results)
+        merged.to_csv(master_path, index=False)
+        print(f"✅ Backfilled results into {master_path}")
+        print(f"SHA256: {sha256sum(master_path)}")
+    else:
+        print("⚠️ Master file not found, cannot backfill.")
+
+# 在程式入口加上模式選項
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--task", type=str, default="morning")
+    parser.add_argument("--snapshot", type=str, default="T60")
+    parser.add_argument("--tz", type=str, default="Asia/Taipei")
+    parser.add_argument("--mode", type=str, default="normal")
+    args = parser.parse_args()
+
+    if args.mode == "backfill":
+        backfill_results()
+    else:
+        main(snapshot_type=args.snapshot)
