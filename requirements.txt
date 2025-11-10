@@ -1,9 +1,7 @@
-pandas
-numpy
-scipy
-requests
-beautifulsoup4
-lxml
-python-dateutil
-pytz
-tqdm
+pandas==2.2.3
+numpy==1.26.4
+requests==2.32.3
+beautifulsoup4==4.12.3
+pytz==2024.1
+lxml==5.2.1
+html5lib==1.1
