@@ -1,5 +1,5 @@
-# main.py — Hybrid v4.3-RV (Real Backfill + Vegas + Rotowire + Full Coverage)
-# Author: Rextin & GPT-5 — 2025-11-10 (Full Coverage Patched)
+# main.py — Hybrid v4.3-RV (Real Backfill + Vegas + Rotowire)
+# Author: Rextin & GPT-5 — 2025-11-10
 
 import os, sys, time, hashlib, random, re
 import datetime as dt
@@ -17,16 +17,15 @@ def date_et(offset=0): return (now_tz(TZ_ET)+dt.timedelta(days=offset)).strftime
 def to_utc(s):
     try: return dt.datetime.fromisoformat(s.replace("Z","+00:00")).astimezone(TZ_UTC)
     except: return None
-def sha256sum(p): 
+def sha256sum(p):
     with open(p,"rb") as f: return hashlib.sha256(f.read()).hexdigest()
 def ensure_dirs(): [os.makedirs(x,exist_ok=True) for x in ["data","logs","backups"]]
 
 # ===== ESPN Scoreboard =====
 def fetch_espn_scoreboard(yyyymmdd):
-    url="https://site.api.espn.com/apis/v2/sports/basketball/nba/scoreboard"
-    r=requests.get(url,params={"dates":yyyymmdd},timeout=20)
-    r.raise_for_status()
-    return r.json()
+    r=requests.get("https://site.api.espn.com/apis/v2/sports/basketball/nba/scoreboard",
+                   params={"dates":yyyymmdd},timeout=20)
+    r.raise_for_status(); return r.json()
 
 def parse_events_to_df(sb):
     evs=sb.get("events",[]); rows=[]
@@ -37,10 +36,10 @@ def parse_events_to_df(sb):
         date_iso=comp.get("date"); tip=to_utc(date_iso)
         odds=comp.get("odds") or []; spread=None; total=None
         if odds:
-            o=odds[-1]
-            try: spread=float(o.get("spread")) if o.get("spread") else None
+            o=odds[-1]; spread=o.get("spread"); total=o.get("overUnder")
+            try: spread=float(spread) if spread else None
             except: spread=None
-            try: total=float(o.get("overUnder")) if o.get("overUnder") else None
+            try: total=float(total) if total else None
             except: total=None
         tms=comp.get("competitors") or []; home,away=None,None
         for t in tms:
@@ -52,24 +51,16 @@ def parse_events_to_df(sb):
         try:
             hscore=int(home.get("score")); ascore=int(away.get("score"))
         except: hscore=ascore=None
-        rows.append({
-            "game_id":cid,"state":state,"completed":done,
-            "tipoff_utc":tip.isoformat() if tip else None,
-            "home_team":hname,"away_team":aname,
-            "home_score":hscore,"away_score":ascore,
-            "spread_line_raw":spread,"total_line":total
-        })
+        rows.append({"game_id":cid,"state":state,"completed":done,"tipoff_utc":tip.isoformat() if tip else None,
+                     "home_team":hname,"away_team":aname,"home_score":hscore,"away_score":ascore,
+                     "spread_line_raw":spread,"total_line":total})
     return pd.DataFrame(rows)
 
 # ===== VegasInsider 盤口 =====
 def fetch_vegas_odds():
     url="https://www.vegasinsider.com/nba/odds/las-vegas/"
-    try:
-        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20)
-        soup=BeautifulSoup(r.text,"html.parser")
-    except Exception as e:
-        print("❌ Vegas odds fetch error:",e)
-        return pd.DataFrame()
+    r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20)
+    soup=BeautifulSoup(r.text,"html.parser")
     rows=[]
     for tr in soup.select("table tbody tr"):
         tds=[t.get_text(strip=True) for t in tr.select("td")]
@@ -81,22 +72,16 @@ def fetch_vegas_odds():
         except: total=None
         try: spread=float(re.sub("[^0-9.-]+","",spread))
         except: spread=None
-        rows.append({
-            "home_team":home,"away_team":away,
-            "closing_total_vi":total,"closing_spread_vi":spread
-        })
+        rows.append({"home_team":home,"away_team":away,
+                     "closing_total_vi":total,"closing_spread_vi":spread})
     return pd.DataFrame(rows)
 
 # ===== Rotowire 傷兵 =====
 def fetch_rotowire_injuries():
     url="https://www.rotowire.com/basketball/nba-injury-report.php"
-    try:
-        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20)
-        soup=BeautifulSoup(r.text,"html.parser")
-    except Exception as e:
-        print("❌ Rotowire fetch error:",e)
-        return pd.DataFrame()
-    notes={}
+    r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20)
+    soup=BeautifulSoup(r.text,"html.parser")
+    teams=soup.select(".player"); notes={}
     for div in soup.select(".player"):
         team=div.find_previous("h2")
         if not team: continue
@@ -104,13 +89,12 @@ def fetch_rotowire_injuries():
         p=div.get_text(" ",strip=True)
         if tname not in notes: notes[tname]=[]
         notes[tname].append(p[:80])
-    return pd.DataFrame([{"team":k,"injury_report_rw":"; ".join(v[:5])} for k,v in notes.items()])
+    df=pd.DataFrame([{"team":k,"injury_report_rw":"; ".join(v[:5])} for k,v in notes.items()])
+    return df
 
 # ===== Safe merge append =====
 def safe_merge_append(df_new,path,keys):
-    if df_new.empty:
-        print(f"⚠️ No new data for {os.path.basename(path)}")
-        return False
+    if df_new.empty: return False
     if os.path.exists(path):
         old=pd.read_csv(path)
         k_old=old[keys].astype(str).agg("||".join,axis=1)
@@ -124,20 +108,15 @@ def safe_merge_append(df_new,path,keys):
 
 # ===== 回抓（真實＋盤口＋傷兵） =====
 def run_backfill_real():
-    y=date_et(-1)
-    print(f"🔁 Real Backfill {y} (ET)")
+    y=date_et(-1); print(f"🔁 Backfill {y} (ET)")
     try: df_espn=parse_events_to_df(fetch_espn_scoreboard(y))
-    except Exception as e:
-        print("❌ ESPN fetch error:",e)
-        sys.exit(2)
+    except Exception as e: print("ESPN err",e); sys.exit(2)
     done=df_espn[df_espn["completed"]==True].copy()
-    if done.empty:
-        print("⚠️ No completed games to backfill.")
-        sys.exit(0)
+    if done.empty: print("No completed games."); sys.exit(0)
     try: df_vi=fetch_vegas_odds()
-    except: df_vi=pd.DataFrame()
+    except Exception as e: print("VI err",e); df_vi=pd.DataFrame()
     try: df_rw=fetch_rotowire_injuries()
-    except: df_rw=pd.DataFrame()
+    except Exception as e: print("RW err",e); df_rw=pd.DataFrame()
 
     out=[]
     for _,r in done.iterrows():
@@ -152,10 +131,9 @@ def run_backfill_real():
             if not rw.empty: rw_home=rw.iloc[0]["injury_report_rw"]
 
         hsc,aSc=r["home_score"],r["away_score"]
-        total=(hsc+aSc) if (hsc is not None and aSc is not None) else None
+        total=(hsc+aSc) if hsc and aSc else None
         line=r["total_line"] or (vi_row.get("closing_total_vi") if vi_row else None)
         spread=r["spread_line_raw"] or (vi_row.get("closing_spread_vi") if vi_row else None)
-
         OU=None
         if line and total:
             OU="Over" if total>line else "Under" if total<line else "Push"
@@ -165,7 +143,6 @@ def run_backfill_real():
             if margin+(-spread)>0: ATS="HomeCover"
             elif margin+(-spread)<0: ATS="AwayCover"
             else: ATS="Push"
-
         out.append({
             "game_id":r["game_id"],"snapshot_type":"FINAL",
             "snapshot_time":now_tz().strftime("%Y-%m-%d %H:%M"),
@@ -176,14 +153,12 @@ def run_backfill_real():
             "injury_report_rw":rw_home,"OU_result_v43":OU,"ATS_result":ATS,
             "source":"ESPN+VI+RW"
         })
-
-    df=pd.DataFrame(out)
-    ensure_dirs()
+    df=pd.DataFrame(out); ensure_dirs()
     safe_merge_append(df,MASTER_PATH,["game_id","snapshot_type"])
     safe_merge_append(df,PERGAME_PATH,["game_id","snapshot_type"])
     print("✅ Real backfill complete.")
 
-# ===== Live 模式（擴大視窗 25–75 min） =====
+# ===== Live 模式 =====
 def simulate_scores(a,b):
     cov=np.array([[SD_TEAM**2,RHO*SD_TEAM**2],[RHO*SD_TEAM**2,SD_TEAM**2]])
     return np.random.multivariate_normal([a,b],cov,size=N_SIM)
@@ -197,9 +172,7 @@ def run_live(window_min=25,window_max=75,snapshot_type="T60"):
         tip=dt.datetime.fromisoformat(r["tipoff_utc"])
         mins=(tip-now).total_seconds()/60
         if window_min<=mins<=window_max and r["state"]=="pre": t.append(r)
-    if not t:
-        print("⚠️ No games in window for live prediction.")
-        return
+    if not t: print("No games in window"); return
     out=[]
     for r in t:
         a,b=random.uniform(102,114),random.uniform(102,114)
@@ -210,16 +183,13 @@ def run_live(window_min=25,window_max=75,snapshot_type="T60"):
         pC=np.mean(mar>-sl) if sl else None
         evO=((pO*1.909)-(1-pO))*100 if pO else None
         evA=((pC*1.909)-(1-pC))*100 if pC else None
-        out.append({
-            "game_id":r["game_id"],"snapshot_type":snapshot_type,
-            "snapshot_time":now_tz().strftime("%Y-%m-%d %H:%M"),
-            "teamA":r["away_team"],"teamB":r["home_team"],
-            "total_line":tl,"spread_line":sl,
-            "prob_over":pO,"prob_cover":pC,
-            "EV_total":evO,"EV_ATS":evA
-        })
-    df=pd.DataFrame(out)
-    ensure_dirs()
+        out.append({"game_id":r["game_id"],"snapshot_type":snapshot_type,
+                    "snapshot_time":now_tz().strftime("%Y-%m-%d %H:%M"),
+                    "teamA":r["away_team"],"teamB":r["home_team"],
+                    "total_line":tl,"spread_line":sl,
+                    "prob_over":pO,"prob_cover":pC,
+                    "EV_total":evO,"EV_ATS":evA})
+    df=pd.DataFrame(out); ensure_dirs()
     safe_merge_append(df,MASTER_PATH,["game_id","snapshot_type"])
     safe_merge_append(df,PERGAME_PATH,["game_id","snapshot_type"])
     print("✅ Live predictions merged.")
@@ -228,17 +198,13 @@ def run_live(window_min=25,window_max=75,snapshot_type="T60"):
 if __name__=="__main__":
     import argparse
     p=argparse.ArgumentParser()
-    p.add_argument("--task", type=str, default="morning")
-    p.add_argument("--mode", type=str, default="live")
-    p.add_argument("--snapshot", type=str, default="T60")
-    p.add_argument("--tz", type=str, default="Asia/Taipei")  # ✅ 新增時區參數
+    p.add_argument("--task",type=str,default="morning")
+    p.add_argument("--mode",type=str,default="live")
+    p.add_argument("--snapshot",type=str,default="T60")
+    p.add_argument("--tz",type=str,default="Asia/Taipei")
     a=p.parse_args()
-
     try:
-        if a.mode=="backfill" or a.task=="evening":
-            run_backfill_real()
-        else:
-            run_live(snapshot_type=a.snapshot)
+        if a.mode=="backfill" or a.task=="evening": run_backfill_real()
+        else: run_live(snapshot_type=a.snapshot)
     except Exception as e:
-        print("❌ Fatal error:", e)
-        sys.exit(2)
+        print("❌ Fatal",e); sys.exit(2)
