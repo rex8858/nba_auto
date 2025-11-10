@@ -206,6 +206,7 @@ if __name__=="__main__":
     p.add_argument("--task",type=str,default="morning")
     p.add_argument("--mode",type=str,default="live")
     p.add_argument("--snapshot",type=str,default="T60")
+    p.add_argument("--tz", type=str, default="Asia/Taipei") 
     a=p.parse_args()
     try:
         if a.mode=="backfill" or a.task=="evening": run_backfill_real()
